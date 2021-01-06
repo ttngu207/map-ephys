@@ -312,4 +312,7 @@ if __name__ == '__main__':
         nwb_outdir = default_nwb_output_dir
 
     for skey in experiment.Session.fetch('KEY'):
-        export_to_nwb(skey, nwb_output_dir=nwb_outdir, save=True)
+        save_file_name = f'{skey["subject_id"]}_session_{skey["session"]}.nwb'
+        output_fp = (pathlib.Path(nwb_outdir) / save_file_name).absolute()
+        if not output_fp.exists():
+            export_to_nwb(skey, nwb_output_dir=nwb_outdir, save=True)
