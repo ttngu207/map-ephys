@@ -27,10 +27,9 @@ hardware_filter = 'Bandpass filtered 300-6K Hz'
 institution = 'Janelia Research Campus'
 
 study_description = dict(
-    related_publications='doi:10.1038/nature17643',
-    experiment_description='Extracellular electrophysiology recordings with optogenetic perturbations performed on anterior lateral region of the mouse cortex during object location discrimination task',
-    keywords=['motor planning', 'premotor cortex', 'whiskers',
-                'optogenetic perturbations', 'extracellular electrophysiology'])
+    related_publications='n/a',
+    experiment_description='Extracellular electrophysiology recordings in anterior lateral motor cortex and in vibrissal sensory cortex in mice trained to detect optogenetic stimulation of the vibrissal sensory cortex',
+    keywords=['decision-making', 'motor cortex', 'optogenetic stimulation', 'extracellular electrophysiology', 'attractor'])
 
 
 def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False, overwrite=False):
@@ -76,6 +75,7 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
 
     # retrieve trial start/stop times
     trial_times = []
+    no_spikes_trials = []
     for trial_key in (experiment.SessionTrial & session_key).fetch('KEY', order_by='trial'):
         ephys_start = float((experiment.BehaviorTrial.Event & 'trial_event_type = "trigger ephys rec."'
                              & trial_key).fetch1('trial_event_time'))
@@ -83,12 +83,17 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
         trial_start = trial_times[-1][-1] + ephys_start if len(trial_times) else 0.0
         # trial_stop: last spike
         spks = (ephys.TrialSpikes & trial_key).fetch('spike_times')
-        last_spike = np.max([spk[-1] for spk in spks if len(spk)])
-        trial_stop = last_spike - ephys_start + trial_start
+        last_spikes = [spk[-1] for spk in spks if len(spk)]
+        if len(last_spikes):
+            trial_stop = np.max(last_spikes) - ephys_start + trial_start
+        else:
+            mean_dur = np.mean([stop - start for _, start, stop in trial_times])
+            trial_stop = trial_start + mean_dur
+            no_spikes_trials.append(trial_key['trial'])
         trial_times.append((trial_key['trial'], trial_start, trial_stop))
 
     trial_times = {tr: (start, stop) for tr, start, stop in trial_times}
-    obs_intervals = list(trial_times.values())
+    obs_intervals = [(start, stop) for tr, (start, stop) in trial_times.items() if tr not in no_spikes_trials]
 
     # add new Units columns
     # --- unit spike times ---
@@ -311,8 +316,11 @@ if __name__ == '__main__':
     else:
         nwb_outdir = default_nwb_output_dir
 
-    for skey in experiment.Session.fetch('KEY'):
+    for skey in (experiment.Session & ephys.Unit).fetch('KEY'):
         save_file_name = f'{skey["subject_id"]}_session_{skey["session"]}.nwb'
         output_fp = (pathlib.Path(nwb_outdir) / save_file_name).absolute()
         if not output_fp.exists():
-            export_to_nwb(skey, nwb_output_dir=nwb_outdir, save=True)
+            try:
+                export_to_nwb(skey, nwb_output_dir=nwb_outdir, save=True)
+            except Exception as e:
+                print(f'Session: {skey}\n{str(e)}')
