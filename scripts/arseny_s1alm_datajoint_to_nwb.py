@@ -180,8 +180,8 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
                                              f'{fiducial_type["tracking_device_id"]}_'
                                              f'{fiducial_type["video_fiducial_name"]}',
                                         unit='a.u.', conversion=1.0,
-                                        data=np.vstack([np.hstack(fiducial_x), np.hstack(fiducial_y), np.hstack(fiducial_p)]),
-                                        description=f'Time-series of the animal\'s {fiducial_type["video_fiducial_name"]} position (x, y, probability) - shape: (3 x times)',
+                                        data=np.vstack([np.hstack(fiducial_x), np.hstack(fiducial_y), np.hstack(fiducial_p)]).T,
+                                        description=f'Time-series of the animal\'s {fiducial_type["video_fiducial_name"]} position (x, y, probability) - shape: (timestamps x 3)',
                                         timestamps=np.hstack(fiducial_times))
 
     # ===============================================================================
@@ -285,10 +285,12 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
     trial_starts = [trial_times[tr][0] for tr in trials]
 
     behav_event.create_timeseries(name='photostim_start_times', unit='mW', conversion=1.0,
+                                  description='Timestamps of the photo-stimulation and the corresponding powers (in mW) being applied',
                                   data=powers.astype(float),
                                   timestamps=event_starts.astype(float) + trial_starts,
                                   control=photo_stim.astype('uint8'), control_description=stim_sites);
     behav_event.create_timeseries(name='photostim_stop_times', unit='mW', conversion=1.0,
+                                  description = 'Timestamps of the photo-stimulation being switched off',
                                   data=np.full_like(event_starts.astype(float), 0),
                                   timestamps=event_stops.astype(float) + trial_starts,
                                   control=photo_stim.astype('uint8'), control_description=stim_sites);
