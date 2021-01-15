@@ -80,6 +80,7 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
         ephys_start = float((experiment.BehaviorTrial.Event & 'trial_event_type = "trigger ephys rec."'
                              & trial_key).fetch1('trial_event_time'))
         # trial_start: previous trial_stop + ephys_start (as inter-trial-interval)
+        # so on a per-trial basis, ephys_start IS the trial's start time
         trial_start = trial_times[-1][-1] + ephys_start if len(trial_times) else 0.0
         # trial_stop: last spike
         spks = (ephys.TrialSpikes & trial_key).fetch('spike_times')
@@ -170,7 +171,7 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
                 'trial', 'trial_event_time', 'fiducial_x_position', 'fiducial_y_position',
                 'fiducial_p', 'fiducial_time', order_by='trial')
 
-            fiducial_times = [fiducial_t.flatten() - go_time + trial_times[trial][0]
+            fiducial_times = [fiducial_t.flatten() + go_time + trial_times[trial][0]
                               for trial, fiducial_t, go_time in zip(trials, fiducial_times, go_times.astype(float))]
             fiducial_x = [d.flatten() for d in fiducial_x]
             fiducial_y = [d.flatten() for d in fiducial_y]
