@@ -268,6 +268,21 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
                                   timestamps=event_stops.astype(float) + trial_starts,
                                   control=photo_stim.astype('uint8'), control_description=stim_sites.values());
 
+    # ---- action events ----
+    lick_event = pynwb.behavior.BehavioralEvents(name='LickEvents')
+    nwbfile.add_acquisition(lick_event)
+
+    q_action_event = (experiment.ActionEvent * q_ephys_event & session_key).proj(
+        event_time='action_event_time - ephys_start')
+
+    for action_event_type in (experiment.ActionEventType & q_action_event).fetch('action_event_type'):
+        trials, event_times = (q_action_event & {'action_event_type': action_event_type}).fetch(
+            'trial', 'event_time', order_by='trial')
+        trial_starts = [trial_times[tr][0] for tr in trials]
+        behav_event.create_timeseries(name=action_event_type + '_times', unit='a.u.', conversion=1.0,
+                                      data=np.full_like(event_starts.astype(float), 1),
+                                      timestamps=event_times.astype(float) + trial_starts)
+
     # =============== Write NWB 2.0 file ===============
     if save:
         save_file_name = ''.join([nwbfile.identifier, '.nwb'])
