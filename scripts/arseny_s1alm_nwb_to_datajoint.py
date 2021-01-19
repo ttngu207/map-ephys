@@ -103,7 +103,7 @@ def ingest_to_pipeline(nwb_filepath):
     # =============================== BEHAVIOR TRIALS ===============================
     # trials
     session_trial_list, behavior_trial_list, trial_name_list, photostim_trial_list = [], [], [], []
-    photostim_event_list, behavior_event_list = [], []
+    photostim_event_list, behavior_event_list, fiducial_trial_list = [], [], []
     trial_go_times = {}  # times of go-cue for each trial (relative to trial's start)
     for trial_id, trial in trials_df.iterrows():
         # trials
@@ -146,12 +146,16 @@ def ingest_to_pipeline(nwb_filepath):
                 trk_device_id, fiducial_name = behav_ts.name.replace('Camera', '').split('_')
                 fiducial_type_key = fiducials_type_dict[(int(trk_device_id), fiducial_name)]
                 valid_trial_ind = np.where(np.logical_and(behav_ts.timestamps[()] >= trial.start_time,
-                           behav_ts.timestamps[()] < trial.stop_time))[0]
+                                                          behav_ts.timestamps[()] < trial.stop_time))[0]
 
                 fiducial_time = behav_ts.timestamps[valid_trial_ind] - trial_go_times[trial_id]
                 fiducial_x_position, fiducial_y_position, fiducial_p = behav_ts.data[valid_trial_ind, :].T
-                
 
+                fiducial_trial_list.append({**fiducial_type_key,
+                                            'fiducial_x_position': fiducial_x_position,
+                                            'fiducial_y_position': fiducial_y_position,
+                                            'fiducial_p': fiducial_p,
+                                            'fiducial_time': fiducial_time})
 
     experiment.SessionTrial.insert(session_trial_list)
     experiment.BehaviorTrial.insert(behavior_trial_list)
@@ -160,12 +164,8 @@ def ingest_to_pipeline(nwb_filepath):
     experiment.BehaviorTrial.Event.insert(behavior_event_list)
     experiment.PhotostimTrial.Event.insert(photostim_event_list)
     ephys.TrialSpikes.insert(trialspikes_list)
+    experiment.VideoFiducialsTrial.insert(fiducial_trial_list)
 
-    # ============================= BEHAVIOR TRACKING ===============================
-
-    if 'BehavioralTimeSeries' in nwbfile.acquisition:
-
-        for
 
 # ============================== INGEST ALL NWB FILES ==========================================
 
