@@ -60,7 +60,7 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
         description=f'source: {subj["animal_source"]}; cage_number: {subj["cage_number"]}',
         genotype=' x '.join((lab.Subject.GeneModification & subj).fetch('gene_modification')),
         sex=subj['sex'],
-        species='mouse',
+        species='Mus musculus',
         date_of_birth=datetime.combine(subj['date_of_birth'], zero_zero_time) if subj['date_of_birth'] else None)
 
     # ===============================================================================
@@ -156,34 +156,6 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
                              unit_ml_location=float(unit['unit_ml_location']) if unit['unit_ml_location'] else np.nan,
                              unit_ap_location=float(unit['unit_ap_location']) if unit['unit_ap_location'] else np.nan,
                              unit_dv_location=float(unit['unit_dv_location']) if unit['unit_dv_location'] else np.nan)
-
-    # ===============================================================================
-    # ============================= BEHAVIOR TRACKING ===============================
-    # ===============================================================================
-
-    if experiment.VideoFiducialsTrial & session_key:
-        behav_acq = pynwb.behavior.BehavioralTimeSeries(name='BehavioralTimeSeries')
-        nwbfile.add_acquisition(behav_acq)
-        for fiducial_type in experiment.VideoFiducialsType.fetch('KEY'):
-            trials, go_times, fiducial_x, fiducial_y, fiducial_p, fiducial_times = (
-                    experiment.VideoFiducialsTrial * (experiment.BehaviorTrial.Event & 'trial_event_type = "go"')
-                    & fiducial_type & session_key).fetch(
-                'trial', 'trial_event_time', 'fiducial_x_position', 'fiducial_y_position',
-                'fiducial_p', 'fiducial_time', order_by='trial')
-
-            fiducial_times = [fiducial_t.flatten() + go_time + trial_times[trial][0]
-                              for trial, fiducial_t, go_time in zip(trials, fiducial_times, go_times.astype(float))]
-            fiducial_x = [d.flatten() for d in fiducial_x]
-            fiducial_y = [d.flatten() for d in fiducial_y]
-            fiducial_p = [d.flatten() for d in fiducial_p]
-
-            behav_acq.create_timeseries(name=f'{fiducial_type["tracking_device_type"]}'
-                                             f'{fiducial_type["tracking_device_id"]}_'
-                                             f'{fiducial_type["video_fiducial_name"]}',
-                                        unit='a.u.', conversion=1.0,
-                                        data=np.vstack([np.hstack(fiducial_x), np.hstack(fiducial_y), np.hstack(fiducial_p)]).T,
-                                        description=f'Time-series of the animal\'s {fiducial_type["video_fiducial_name"]} position (x, y, probability) - shape: (timestamps x 3)',
-                                        timestamps=np.hstack(fiducial_times))
 
     # ===============================================================================
     # ============================= PHOTO-STIMULATION ===============================
@@ -289,12 +261,12 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
                                   description='Timestamps of the photo-stimulation and the corresponding powers (in mW) being applied',
                                   data=powers.astype(float),
                                   timestamps=event_starts.astype(float) + trial_starts,
-                                  control=photo_stim.astype('uint8'), control_description=stim_sites);
+                                  control=photo_stim.astype('uint8'), control_description=stim_sites.values());
     behav_event.create_timeseries(name='photostim_stop_times', unit='mW', conversion=1.0,
                                   description = 'Timestamps of the photo-stimulation being switched off',
                                   data=np.full_like(event_starts.astype(float), 0),
                                   timestamps=event_stops.astype(float) + trial_starts,
-                                  control=photo_stim.astype('uint8'), control_description=stim_sites);
+                                  control=photo_stim.astype('uint8'), control_description=stim_sites.values());
 
     # =============== Write NWB 2.0 file ===============
     if save:
