@@ -92,7 +92,8 @@ def ingest_to_pipeline(nwb_filepath):
         # trial-spikes
         for trial_id, start_time, stop_time in zip(trials_df.index, trials_df.start_time, trials_df.stop_time):
             spks = unit.spike_times[np.logical_and(unit.spike_times >= start_time, unit.spike_times < stop_time)]
-            trialspikes_list.append({**unit_key, 'trial': trial_id, 'spike_times': spks - start_time})
+            if len(spks):
+                trialspikes_list.append({**unit_key, 'trial': trial_id, 'spike_times': spks - start_time})
 
     ephys.Unit.insert(unit_list)
     ephys.UnitCellType.insert(unit_celltype_list)
@@ -103,7 +104,7 @@ def ingest_to_pipeline(nwb_filepath):
     # =============================== BEHAVIOR TRIALS ===============================
     # trials
     session_trial_list, behavior_trial_list, trial_name_list, photostim_trial_list = [], [], [], []
-    photostim_event_list, behavior_event_list, fiducial_trial_list = [], [], []
+    photostim_event_list, behavior_event_list, action_event_list = [], [], []
     trial_go_times = {}  # times of go-cue for each trial (relative to trial's start)
     for trial_id, trial in trials_df.iterrows():
         # trials
@@ -115,7 +116,7 @@ def ingest_to_pipeline(nwb_filepath):
                                     'early_lick': trial.early_lick,
                                     'outcome': trial.outcome})
         trial_name_list.append({**trial_key, 'task': trial.task, 'trial_type_name': trial.trial_type_name})
-        if trial.photostim_duration == 'N/A' and trial.photostim_power == 'N/A' and trial.photostim_duration == 'N/A':
+        if trial.photostim_duration != 'N/A' and trial.photostim_power != 'N/A' and trial.photostim_duration != 'N/A':
             photostim_trial_list.append({**trial_key})
 
         # trials' events
@@ -124,7 +125,7 @@ def ingest_to_pipeline(nwb_filepath):
         for event_type in event_names:
             start_times = nwbfile.acquisition['BehavioralEvents'][event_type + '_start_times'].timestamps[()]
             valid_trial_ind = np.where(np.logical_and(start_times >= trial.start_time,
-                           start_times < trial.stop_time))[0]
+                                                      start_times < trial.stop_time))[0]
             durations = nwbfile.acquisition['BehavioralEvents'][event_type + '_stop_times'].timestamps[valid_trial_ind] - start_times[valid_trial_ind]
 
             if event_type == 'photostim':
@@ -135,27 +136,21 @@ def ingest_to_pipeline(nwb_filepath):
                                             for start_time, power, stim_id in zip(start_times[valid_trial_ind], powers, stim_ind)])
             else:
                 behavior_event_list.extend([{**trial_key, 'trial_event_type': event_type,
-                                             'trial_event_time': start_time - start_time, 'duration': dur}
+                                             'trial_event_time': start_time - trial.start_time, 'duration': dur}
                                             for start_time, dur in zip(start_times[valid_trial_ind], durations)])
                 if event_type == 'go':
-                    trial_go_times[trial_id] = start_times[valid_trial_ind][0] - start_time
+                    trial_go_times[trial_id] = start_times[valid_trial_ind][0] - trial.start_time
 
-        # trials' video fiducials data
-        if 'BehavioralTimeSeries' in nwbfile.acquisition:
-            for behav_ts in nwbfile.acquisition['BehavioralTimeSeries'].children:
-                trk_device_id, fiducial_name = behav_ts.name.replace('Camera', '').split('_')
-                fiducial_type_key = fiducials_type_dict[(int(trk_device_id), fiducial_name)]
-                valid_trial_ind = np.where(np.logical_and(behav_ts.timestamps[()] >= trial.start_time,
-                                                          behav_ts.timestamps[()] < trial.stop_time))[0]
-
-                fiducial_time = behav_ts.timestamps[valid_trial_ind] - trial_go_times[trial_id]
-                fiducial_x_position, fiducial_y_position, fiducial_p = behav_ts.data[valid_trial_ind, :].T
-
-                fiducial_trial_list.append({**fiducial_type_key,
-                                            'fiducial_x_position': fiducial_x_position,
-                                            'fiducial_y_position': fiducial_y_position,
-                                            'fiducial_p': fiducial_p,
-                                            'fiducial_time': fiducial_time})
+        # action events
+        event_names = set([re.sub('_times', '', e_ts.name)
+                           for e_ts in nwbfile.acquisition['LickEvents'].children])
+        for event_type in event_names:
+            start_times = nwbfile.acquisition['LickEvents'][event_type + '_times'].timestamps[()]
+            valid_trial_ind = np.where(np.logical_and(start_times >= trial.start_time,
+                                                      start_times < trial.stop_time))[0]
+            action_event_list.extend([{**trial_key, 'action_event_type': event_type,
+                                       'action_event_time': start_time - trial.start_time}
+                                      for start_time in start_times[valid_trial_ind]])
 
     experiment.SessionTrial.insert(session_trial_list)
     experiment.BehaviorTrial.insert(behavior_trial_list)
@@ -163,8 +158,8 @@ def ingest_to_pipeline(nwb_filepath):
     experiment.PhotostimTrial.insert(photostim_trial_list)
     experiment.BehaviorTrial.Event.insert(behavior_event_list)
     experiment.PhotostimTrial.Event.insert(photostim_event_list)
+    experiment.ActionEvent.insert(action_event_list)
     ephys.TrialSpikes.insert(trialspikes_list)
-    experiment.VideoFiducialsTrial.insert(fiducial_trial_list)
 
 
 # ============================== INGEST ALL NWB FILES ==========================================
