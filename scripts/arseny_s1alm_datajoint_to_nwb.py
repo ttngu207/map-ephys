@@ -7,9 +7,12 @@ import json
 import datajoint as dj
 import warnings
 import pathlib
+from collections import OrderedDict
 
 import pynwb
 from pynwb import NWBFile, NWBHDF5IO
+from ndx_events import LabeledEvents
+
 
 warnings.filterwarnings('ignore', module='pynwb')
 
@@ -43,7 +46,7 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
 
     # -- NWB file - a NWB2.0 file for each session
     nwbfile = NWBFile(identifier=f'{this_session["subject_id"]}_session_{this_session["session"]}',
-                      session_description='',
+                      session_description=json.dumps((experiment.SessionTask * experiment.Task & session_key).fetch1()),
                       session_start_time=datetime.combine(this_session['session_date'], zero_zero_time),
                       file_create_date=datetime.now(tzlocal()),
                       experimenter=this_session['username'],
@@ -224,8 +227,8 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
     # =============================== TRIAL EVENTS ==========================
     # ===============================================================================
 
-    behav_event = pynwb.behavior.BehavioralEvents(name='BehavioralEvents')
-    nwbfile.add_acquisition(behav_event)
+    event_times, event_label_ind = [], []
+    event_labels = OrderedDict()
 
     # ---- behavior events ----
     q_ephys_event = (experiment.BehaviorTrial.Event & 'trial_event_type = "trigger ephys rec."').proj(
@@ -235,19 +238,47 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
                      & session_key).proj(
         event_start='trial_event_time - ephys_start', event_stop='trial_event_time - ephys_start + duration')
 
-    for trial_event_type in (experiment.TrialEventType & q_trial_event).fetch('trial_event_type'):
-        trials, event_starts, event_stops = (q_trial_event & {'trial_event_type': trial_event_type}).fetch(
-            'trial', 'event_start', 'event_stop', order_by='trial')
-        trial_starts = [trial_times[tr][0] for tr in trials]
-        behav_event.create_timeseries(name=trial_event_type + '_start_times', unit='a.u.', conversion=1.0,
-                                      data=np.full_like(event_starts.astype(float), 1),
-                                      timestamps=event_starts.astype(float) + trial_starts)
-        if not np.array_equal(event_starts, event_stops):
-            behav_event.create_timeseries(name=trial_event_type + '_stop_times', unit='a.u.', conversion=1.0,
-                                          data=np.full_like(event_stops.astype(float), 1),
-                                          timestamps=event_stops.astype(float) + trial_starts)
+    trials, event_types, event_starts, event_stops = q_trial_event.fetch(
+        'trial', 'trial_event_type', 'event_start', 'event_stop', order_by='trial')
+    trial_starts = [trial_times[tr][0] for tr in trials]
+    event_starts = event_starts.astype(float) + trial_starts
+    event_stops = event_stops.astype(float) + trial_starts
+
+    for etype in set(event_types):
+        event_labels[etype + '_start_times'] = len(event_labels)
+        event_labels[etype + '_stop_times'] = len(event_labels)
+
+    event_times.extend(event_starts)
+    event_label_ind.extend([event_labels[etype + '_start_times'] for etype in event_types])
+    event_times.extend(event_stops)
+    event_label_ind.extend([event_labels[etype + '_stop_times'] for etype in event_types])
+
+    # ---- action events ----
+    q_action_event = (experiment.ActionEvent * q_ephys_event & session_key).proj(
+        event_time='action_event_time - ephys_start')
+
+    trials, event_types, event_starts = q_action_event.fetch(
+        'trial', 'action_event_type', 'event_time', order_by='trial')
+    trial_starts = [trial_times[tr][0] for tr in trials]
+    event_starts = event_starts.astype(float) + trial_starts
+
+    for etype in set(event_types):
+        event_labels[etype] = len(event_labels)
+
+    event_times.extend(event_starts)
+    event_label_ind.extend([event_labels[etype] for etype in event_types])
+
+    labeled_events = LabeledEvents(name='LabeledEvents',
+                                   description='behavioral events of the experimental paradigm',
+                                   timestamps=event_times,
+                                   data=event_label_ind,
+                                   labels=list(event_labels.keys()))
+    nwbfile.add_acquisition(labeled_events)
 
     # ---- photostim events ----
+    behav_event = pynwb.behavior.BehavioralEvents(name='PhotostimEvents')
+    nwbfile.add_acquisition(behav_event)
+
     q_photostim_event = (experiment.Photostim.proj('duration') * experiment.PhotostimTrial.Event
                          * q_ephys_event & session_key).proj(
         event_start='photostim_event_time - ephys_start',
@@ -267,21 +298,6 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
                                   data=np.full_like(event_starts.astype(float), 0),
                                   timestamps=event_stops.astype(float) + trial_starts,
                                   control=photo_stim.astype('uint8'), control_description=stim_sites.values());
-
-    # ---- action events ----
-    lick_event = pynwb.behavior.BehavioralEvents(name='LickEvents')
-    nwbfile.add_acquisition(lick_event)
-
-    q_action_event = (experiment.ActionEvent * q_ephys_event & session_key).proj(
-        event_time='action_event_time - ephys_start')
-
-    for action_event_type in (experiment.ActionEventType & q_action_event).fetch('action_event_type'):
-        trials, event_times = (q_action_event & {'action_event_type': action_event_type}).fetch(
-            'trial', 'event_time', order_by='trial')
-        trial_starts = [trial_times[tr][0] for tr in trials]
-        behav_event.create_timeseries(name=action_event_type + '_times', unit='a.u.', conversion=1.0,
-                                      data=np.full_like(event_starts.astype(float), 1),
-                                      timestamps=event_times.astype(float) + trial_starts)
 
     # =============== Write NWB 2.0 file ===============
     if save:
