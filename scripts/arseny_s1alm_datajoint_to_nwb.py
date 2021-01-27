@@ -126,7 +126,7 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
             name=str(egroup['electrode_group']), description='N/A', device=ephys_device,
             location=json.dumps(insert_location))
 
-        for chn in np.arange(1, 32):
+        for chn in np.arange(1, 33):
             nwbfile.add_electrode(id=chn, group=electrode_group, filtering=hardware_filter, imp=-1.,
                                   x=np.nan, y=np.nan, z=np.nan,
                                   location=electrode_group.location)
@@ -144,8 +144,10 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
                                for tr, spks, ephys_start in zip(trials, unit_spiketimes, ephys_starts.astype(float))]
 
             # make an electrode table region (which electrode(s) is this unit coming from)
+            electrode_df = nwbfile.electrodes.to_dataframe()
+            electrode_ind = electrode_df.index[electrode_df.group_name == electrode_group.name]
             nwbfile.add_unit(id=unit['unit'],
-                             electrodes=np.where(np.array(nwbfile.electrodes.id.data) == int(unit['unit_channel']))[0],
+                             electrodes=np.where(electrode_ind == int(unit['unit_channel']))[0],
                              electrode_group=electrode_group,
                              obs_intervals=obs_intervals,
                              sampling_rate=unit['sampling_fq'],
