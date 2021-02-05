@@ -91,7 +91,12 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
         if len(last_spikes):
             trial_stop = np.max(last_spikes) - ephys_start + trial_start
         else:
-            mean_dur = np.mean([stop - start for _, start, stop in trial_times])
+            if len(trial_times) == 0:
+                # the case of very first trial having no spikes, hard-coding the duration to be 12 seconds
+                mean_dur = 12
+            else:
+                mean_dur = np.mean([stop - start for _, start, stop in trial_times])
+
             trial_stop = trial_start + mean_dur
             no_spikes_trials.append(trial_key['trial'])
         trial_times.append((trial_key['trial'], trial_start, trial_stop))
